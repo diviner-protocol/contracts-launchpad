@@ -37,10 +37,15 @@ contract LaunchpadV2 is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     uint256 minBuyAmountPercent;
   }
 
+  struct ExtraInfoPool {
+    uint256 minBuyAmountPercent;
+  }
+
   uint256 public nextPoolId;
 
   mapping(uint256 => Pool) public pools;
   mapping(uint256 => mapping(address => User)) public users; // poolId => address user
+  mapping(uint256 => ExtraInfoPool) public extraInfoPool;
 
   event Buy(uint256 poolId, address indexed user, uint256 amount);
   event Claim(uint256 poolId, address indexed user, uint256 amount);
@@ -113,13 +118,14 @@ contract LaunchpadV2 is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     pools[nextPoolId].releaseAmount = releaseAmount;
     pools[nextPoolId].releaseRate = releaseRate;
     pools[nextPoolId].maxAmountUserCanBuy = maxAmountUserCanBuy;
-    pools[nextPoolId].minBuyAmountPercent = minBuyAmountPercent;
     pools[nextPoolId].startTime = startTime;
     pools[nextPoolId].endTime = startTime + endTime;
     pools[nextPoolId].delayTime = delayTime;
     pools[nextPoolId].lockingTime = lockingTime;
     pools[nextPoolId].refundTime = refundTime;
     pools[nextPoolId].claimPercent = claimPercent;
+
+    extraInfoPool[nextPoolId].minBuyAmountPercent = minBuyAmountPercent;
 
     nextPoolId++;
   }
@@ -162,6 +168,55 @@ contract LaunchpadV2 is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     pools[poolId].endTime = pools[poolId].startTime + endTime;
   }
 
+  function updateMaxAmountUserCanBuy(
+    uint256 poolId,
+    uint256 maxAmountUserCanBuy
+  ) external onlyOwner {
+    pools[poolId].maxAmountUserCanBuy = maxAmountUserCanBuy;
+  }
+
+  function updateMinBuyAmountPercent(
+    uint256 poolId,
+    uint256 minBuyAmountPercent
+  ) external onlyOwner {
+    extraInfoPool[poolId].minBuyAmountPercent = minBuyAmountPercent;
+  }
+
+  function updateClaimPercent(uint256 poolId, uint256[] memory claimPercent)
+    external
+    onlyOwner
+  {
+    pools[poolId].claimPercent = claimPercent;
+  }
+
+  function updateDelayTime(uint256 poolId, uint256 delayTime)
+    external
+    onlyOwner
+  {
+    pools[poolId].delayTime = delayTime;
+  }
+
+  function updateLockingTime(uint256 poolId, uint256 lockingTime)
+    external
+    onlyOwner
+  {
+    pools[poolId].lockingTime = lockingTime;
+  }
+
+  function updateReleaseAmount(uint256 poolId, uint256 releaseAmount)
+    external
+    onlyOwner
+  {
+    pools[poolId].releaseAmount = releaseAmount;
+  }
+
+  function updateRefundTime(uint256 poolId, uint256 refundTime)
+    external
+    onlyOwner
+  {
+    pools[poolId].refundTime = refundTime;
+  }
+
   function buy(uint256 poolId, uint256 _amount) external nonReentrant {
     require(_amount > 0, "buy zero amount");
     require(nextPoolId > poolId, "not exist pool");
@@ -173,7 +228,7 @@ contract LaunchpadV2 is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     );
     uint256 amountUserCanDeposit = getAmountUserCanBuy(poolId);
     uint256 minBuyAmount = (amountUserCanDeposit *
-      poolInfo.minBuyAmountPercent) / 100;
+      extraInfoPool[poolId].minBuyAmountPercent) / 100;
 
     User storage userInfo = users[poolId][msg.sender];
 
@@ -184,12 +239,12 @@ contract LaunchpadV2 is OwnableUpgradeable, ReentrancyGuardUpgradeable {
 
     require(
       userInfo.amount + _amount >= minBuyAmount,
-      "Not greater than min buy amount"
+      "Not greater than min purchase amount"
     );
 
     require(
       poolInfo.totalAmount + _amount <= poolInfo.releaseAmount,
-      "Exceed total buy amount"
+      "Sold out"
     );
 
     userInfo.amount += _amount;
