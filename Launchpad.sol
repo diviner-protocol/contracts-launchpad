@@ -42,11 +42,14 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     uint256 buyRate; // rate 1 dpt / token
   }
 
+  struct ExtraInfoPool {
+    uint256 minBuyAmountPercent;
+  }
   uint256 public nextPoolId;
 
   mapping(uint256 => Pool) public pools;
   mapping(uint256 => mapping(address => User)) public users; // poolId => address user
-
+  mapping(uint256 => ExtraInfoPool) public extraInfoPool;
   event Buy(uint256 poolId, address indexed user, uint256 amount);
   event Claim(uint256 poolId, address indexed user, uint256 amount);
   event Refund(uint256 poolId, address indexed user, uint256 amount);
@@ -117,6 +120,7 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     uint256 releaseAmount,
     uint256 releaseRate,
     uint256 minStakedAmount,
+    uint256 minBuyAmountPercent,
     uint256[] memory claimPercent,
     uint256 startTime,
     uint256 endTime,
@@ -144,6 +148,8 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     pools[nextPoolId].lockingTime = lockingTime;
     pools[nextPoolId].refundTime = refundTime;
     pools[nextPoolId].claimPercent = claimPercent;
+
+    extraInfoPool[nextPoolId].minBuyAmountPercent = minBuyAmountPercent;
 
     nextPoolId++;
   }
@@ -175,6 +181,13 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     pools[poolId].claimPercent = claimPercent;
   }
 
+  function updateMinBuyAmountPercent(
+    uint256 poolId,
+    uint256 minBuyAmountPercent
+  ) external onlyOwner {
+    extraInfoPool[poolId].minBuyAmountPercent = minBuyAmountPercent;
+  }
+
   function updateReleaseToken(uint256 poolId, address releaseToken)
     external
     onlyOwner
@@ -187,6 +200,13 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     onlyOwner
   {
     pools[poolId].delayTime = delayTime;
+  }
+
+  function updateRefundTime(uint256 poolId, uint256 refundTime)
+    external
+    onlyOwner
+  {
+    pools[poolId].refundTime = refundTime;
   }
 
   function updateClaimPercent(uint256 poolId, uint256[] memory claimPercent)
@@ -229,6 +249,8 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
       "End pool"
     );
     uint256 amountUserCanDeposit = getAmountUserCanBuy(poolId, msg.sender);
+    uint256 minBuyAmount = (amountUserCanDeposit *
+      extraInfoPool[poolId].minBuyAmountPercent) / 100;
     require(
       amountUserCanDeposit != 0,
       "Not stake enough dpt or not in whitelist"
@@ -239,13 +261,16 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
       userInfo.amount + _amount <= amountUserCanDeposit,
       "exceed amount can deposit"
     );
+    require(
+      userInfo.amount + _amount >= minBuyAmount,
+      "Not greater than min purchase amount"
+    );
 
     require(
       poolInfo.totalAmount + _amount <=
         poolInfo.releaseAmount + poolInfo.totalWhitelistAmount,
       "exceed buy amount"
     );
-
     userInfo.amount += _amount;
     poolInfo.totalAmount += _amount;
 
@@ -297,7 +322,7 @@ contract Launchpad is OwnableUpgradeable, ReentrancyGuardUpgradeable {
     require(userInfo.amount > 0, "not enough amount, can not refund");
     require(userInfo.claimedMark == 0, "claimed token");
     require(nextPoolId > poolId, "not exist pool");
-    Pool storage poolInfo = pools[poolId];
+    Pool memory poolInfo = pools[poolId];
     require(
       block.timestamp > poolInfo.endTime + poolInfo.delayTime &&
         block.timestamp <
